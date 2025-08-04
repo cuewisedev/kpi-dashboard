@@ -1,0 +1,2647 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+// Removed direct import for Dexie.js as it will be loaded dynamically
+// Removed direct import for XLSX as it will be loaded dynamically
+// Removed direct import for Papa as it will be loaded dynamically
+// Removed direct import for html2canvas as it will be loaded dynamically
+import { jsPDF } from 'https://unpkg.com/jspdf@2.5.1/dist/jspdf.es.min.js';
+import { Chart, registerables } from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.esm.js';
+
+// Register Chart.js components
+Chart.register(...registerables);
+
+// --- Five9 Branding Colors & Fonts ---
+const FIVE9_COLORS = {
+  primary: '#0072C6', // Deep Blue
+  secondary: '#00AEEF', // Light Blue / Sky Blue
+  darkGray: '#4D4D4D',
+  lightGray: '#F2F2F2',
+  textBase: '#333333',
+  textLight: '#666666',
+};
+
+const FONT_FAMILY = 'Open Sans, Roboto, Helvetica Neue, Arial, sans-serif';
+
+// --- Mock Employee Metadata (as not present in provided CSVs directly for position/org) ---
+const MOCK_EMPLOYEES = [
+  { id: '2394', name: 'Cuenco, John Patrick T.', position: 'Team Lead', supervisor: 'Sarah Lee', organization: 'Strategic Accounts' },
+  { id: '2232', name: 'Severo, Dheznee P.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '2460', name: 'Deseo, Niko N.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '3030', name: 'Anub, Myles Kevin V.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4034', name: 'Dela Cruz, Louie G.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4259', name: 'Boisa, John Patrick P.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4805', name: 'Navarro, Charo Mae G.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4806', name: 'Orduyo, Mykjor Loiz A.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4870', name: 'Fajardo, Carl Mark B.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '4980', name: 'Guce, Yvan Laurentti R.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '3088', name: 'Lavina, Leslie Anne R.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '3139', name: 'Ganapin, Jan Michael B.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+  { id: '2309', name: 'Pesimo, Alister Von John O.', position: 'Agent', supervisor: 'John Patrick Cuenco', organization: 'Strategic Accounts' },
+];
+
+// --- Initial KPI Definitions for dynamic management ---
+const INITIAL_KPI_DEFINITIONS = [
+  { id: 'Final Score', displayName: 'Final Score', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Overall performance score' },
+  { id: 'Core Score', displayName: 'Core Score', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Core metric performance' },
+  { id: 'CSAT Average', displayName: 'CSAT Average', type: 'percentage', isActive: true, targetToPass: 0.85, weight: 0.165, description: 'Customer Satisfaction Average' },
+  { id: 'CSAT Rating', displayName: 'CSAT Rating', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Customer Satisfaction Rating' },
+  { id: 'TTR Average', displayName: 'TTR Average', type: 'number', isActive: true, targetToPass: 25.0, weight: 0.255, description: 'Time To Resolution Average (in minutes)' },
+  { id: 'TTR Rating', displayName: 'TTR Rating', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Time To Resolution Rating' },
+  { id: 'Dependability %', displayName: 'Dependability %', type: 'percentage', isActive: true, targetToPass: 0.95, weight: 0.15, description: 'Percentage of time dependable' },
+  { id: 'Dependability Score', displayName: 'Dependability Score', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Dependability Score' },
+  { id: 'Case SLA', displayName: 'Case SLA', type: 'number', isActive: true, targetToPass: 0.2, weight: 0.15, description: 'Case Service Level Agreement compliance' },
+  { id: 'Case SLA Rating', displayName: 'Case SLA Rating', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Case SLA Rating' },
+  { id: 'Behavioral Points', displayName: 'Behavioral Points', type: 'number', isActive: true, targetToPass: 20, weight: 0.07, description: 'Total behavioral points' },
+  { id: 'Behavioral Rating', displayName: 'Behavioral Rating', type: 'percentage', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Rating Score' },
+  { id: 'Initiative', displayName: 'Initiative', type: 'number', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Initiative Score' },
+  { id: 'Results Orientation', displayName: 'Results Orientation', type: 'number', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Results Orientation Score' },
+  { id: 'Sense Of Urgency', displayName: 'Sense Of Urgency', type: 'number', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Sense Of Urgency Score' },
+  { id: 'Accountability/Judgement', displayName: 'Accountability/Judgement', type: 'number', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Accountability/Judgement Score' },
+  { id: 'Teamwork/Team Leadership', displayName: 'Teamwork/Team Leadership', type: 'number', isActive: true, targetToPass: null, weight: null, description: 'Behavioral Teamwork/Team Leadership Score' },
+  { id: 'Total Infractions', displayName: 'Total Infractions', type: 'number', isActive: true, targetToPass: 0, weight: null, description: 'Total Attendance Infractions' },
+  { id: 'NCNS', displayName: 'NCNS', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'No Call No Show' },
+  { id: 'AA', displayName: 'AA', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Absent Without Leave' },
+  { id: 'UA', displayName: 'UA', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Unauthorized Absence' },
+  { id: 'Tardy<11', displayName: 'Tardy < 11 Min', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Tardy less than 11 minutes' },
+  { id: 'Tardy>=11', displayName: 'Tardy >= 11 Min', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Tardy 11 minutes or more' },
+  { id: 'UTA', displayName: 'UTA', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Unapproved Time Off' },
+  { id: 'UTU', displayName: 'UTU', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Unauthorized Time Off' },
+  { id: 'FPTO', displayName: 'FPTO', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Flexible Paid Time Off' },
+  { id: 'Overbreak', displayName: 'Overbreak', type: 'number', isActive: false, targetToPass: 0, weight: null, description: 'Overbreak' },
+];
+
+// --- Embedded CSV Data Strings ---
+const SCORECARD_BREAKDOWN_CSV = `Start of Month,Employee Name,Monthly Identifier,LOB,Supervisor,Final Score,Core Score,CSAT Average,CSAT Rating,TTR Average,TTR Rating,Dependability %,Dependability Score,Case SLA,Case SLA Rating,Behavioral Points,Behavioral Rating
+2024-01-01,"Severo, Dheznee P.",Strategic Accounts,Cigna,John Patrick Cuenco,0.793075,0.720075,0.55,0.165,24.4925,0.255075,0.916666666666667,0.15,0.17874228395077,0.15,16.0,0.073
+2024-01-01,"Deseo, Niko N.",Strategic Accounts,Cigna,John Patrick Cuenco,0.820075,0.720075,0.55,0.165,24.4925,0.255075,0.993333333333333,0.15,0.366710069443798,0.15,25.0,0.1
+2024-01-01,"Anub, Myles Kevin V.",Strategic Accounts,Cigna,John Patrick Cuenco,0.814075,0.720075,0.55,0.165,24.4925,0.255075,0.976667,0.15,0.408958,0.15,23.0,0.094
+2024-01-01,"Dela Cruz, Louie G.",Strategic Accounts,Cigna,John Patrick Cuenco,0.814075,0.720075,0.55,0.165,24.4925,0.255075,1.0,0.15,0.271701,0.15,23.0,0.094
+2024-01-01,"Boisa, John Patrick P.",Strategic Accounts,Cigna,John Patrick Cuenco,0.799075,0.720075,0.55,0.165,24.4925,0.255075,0.996667,0.15,0.309734,0.15,18.0,0.079
+2024-02-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.976,1,1,0.3,1.415,0.3,1,0.15,0.051195,0.15,17.0,0.076
+2024-02-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,1,0.3,1.415,0.3,1,0.15,0.11149,0.15,25.0,0.1
+2024-02-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,1,1,1,0.3,1.415,0.3,1,0.15,0.11149,0.15,25.0,0.1
+2024-02-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,1,0.3,1.415,0.3,1,0.15,0.213708,0.15,25.0,0.1
+2024-02-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.982,0.88,1,0.3,1.415,0.3,0.98,0.13,0.17874,0.14,19.0,0.082
+2024-03-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.975333,0.893333,1,0.3,4.44,0.3,0.993333,0.143333,0.350657,0.15,19.0,0.082
+2024-03-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,1,0.3,4.44,0.3,1,0.15,0,0.15,25.0,0.1
+2024-03-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.993666,0.896666,1,0.3,4.44,0.3,0.996666,0.146666,0.150724,0.15,24.0,0.097
+2024-03-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,1,0.3,4.44,0.3,1,0.15,0.216347,0.15,25.0,0.1
+2024-03-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.988,0.9,1,0.3,4.44,0.3,0.99,0.14,0.252794,0.15,21.0,0.088
+2024-04-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.987666,0.896666,0.95,0.3,1.614,0.3,0.996666,0.146666,0.461033,0.15,22.0,0.091
+2024-04-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.95,0.3,1.614,0.3,1,0.15,0.065277,0.15,25.0,0.1
+2024-04-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.977,0.88,0.95,0.3,1.614,0.3,0.996666,0.146666,0.166666,0.15,23.0,0.094
+2024-04-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.95,0.3,1.614,0.3,1,0.15,0.089855,0.15,25.0,0.1
+2024-04-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.975333,0.893333,0.95,0.3,1.614,0.3,0.993333,0.143333,0.145885,0.143333,18.0,0.079
+2024-05-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.99,0.906666,0.9,0.29,0.593,0.3,1,0.15,0.146666,0.15,21.0,0.088
+2024-05-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.9,0.29,0.593,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-05-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.993,0.9,0.9,0.29,0.593,0.3,0.993333,0.143333,0.146666,0.15,24.0,0.097
+2024-05-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.9,0.29,0.593,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-05-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.985,0.893333,0.9,0.29,0.593,0.3,0.993333,0.143333,0.146666,0.15,19.0,0.082
+2024-06-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.993,0.9,0.92,0.29,2.83,0.3,1,0.15,0.146666,0.15,22.0,0.091
+2024-06-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.92,0.29,2.83,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-06-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.995,0.9,0.92,0.29,2.83,0.3,1,0.15,0.146666,0.15,24.0,0.097
+2024-06-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.92,0.29,2.83,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-06-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.991,0.893333,0.92,0.29,2.83,0.3,1,0.15,0.146666,0.15,20.0,0.085
+2024-07-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.95,0.29,2.23,0.3,1,0.15,0.146666,0.15,23.0,0.094
+2024-07-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.95,0.29,2.23,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-07-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.95,0.29,2.23,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-07-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.95,0.29,2.23,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-07-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.95,0.29,2.23,0.3,1,0.15,0.146666,0.15,22.0,0.091
+2024-08-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.98,0.3,2.44,0.3,1,0.15,0.146666,0.15,24.0,0.097
+2024-08-01,"Deseo, Niko N.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.98,0.3,2.44,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-08-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.98,0.3,2.44,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-08-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,1,1,0.98,0.3,1,0.15,0.146666,0.15,25.0,0.1
+2024-08-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.98,0.3,2.44,0.3,1,0.15,0.146666,0.15,22.0,0.091
+2024-09-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-09-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-09-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2024-09-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-09-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-09-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-09-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-09-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-09-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-10-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-10-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-10-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2024-10-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-10-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-10-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-10-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-10-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-10-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-11-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-11-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-11-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2024-11-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-11-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-11-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-11-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-11-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-11-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-12-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-12-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-12-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2024-12-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-12-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-12-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-12-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2024-12-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2024-12-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-01-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-01-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-01-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-01-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-01-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-01-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-01-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-01-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-01-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-02-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-02-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-02-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-02-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-02-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-02-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-02-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-02-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-02-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-03-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-03-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-03-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-03-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-03-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-03-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-03-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-03-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-03-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-04-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-04-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-04-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-04-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-04-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-04-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-04-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-04-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-04-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-05-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-05-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-05-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-05-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-05-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-05-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-05-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-05-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-05-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-06-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-06-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-06-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-06-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-06-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-06-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-06-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-06-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-06-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-07-01,"Severo, Dheznee P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-07-01,"Orduyo, Mykjor Loiz A.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-07-01,"Fajardo, Carl Mark B.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.981333333333333,0.893333333333333,0.983333333333333,0.3,15.9466666666667,0.3,0.993333333333333,0.143333333333333,0.146666666666667,0.15,23.0,0.094
+2025-07-01,"Cuenco, John Patrick T.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-07-01,"Anub, Myles Kevin V.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-07-01,"Dela Cruz, Louie G.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-07-01,"Boisa, John Patrick P.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001
+2025-07-01,"Pesimo, Alister Von John O.",Strategic Accounts,Wells Fargo,  John Patrick Cuenco,0.998,0.9,0.983333333333333,0.3,15.9466666666667,0.3,0.96,0.11,0.213204365079716,0.15,25.0,0.1
+2025-07-01,"Guce, Yvan Laurentti R.",Strategic Accounts,Wells Fargo,John Patrick Cuenco,0.997,0.9,0.983333333333333,0.3,15.9466666666667,0.3,1.0,0.15,0.648150750784044,0.15,24.0,0.0970000000000001`;
+
+const BEHAVIORAL_POINTS_CSV = `Start of Month,Employee ID,Employee Name,Initiative,Results Orientation,Sense Of Urgency,Accountability/Judgement,Teamwork/Team Leadership,Behavioral Points,Equivalent Score
+2024-01-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-02-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-03-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2024-01-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2024-04-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,3030,"Anub, Myles Kevin V.",5,5,5,3,5,23,0.940000000000001
+2024-05-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-06-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-07-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,4034,"Dela Cruz, Louie G.",5,4,4,5,4,22,0.91
+2024-01-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2024-08-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-09-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-10-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-02-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2024-02-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2024-02-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2024-02-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2024-02-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2024-11-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-12-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-01-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-03-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-04-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-05-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-06-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-07-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-01-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-01-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-01-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-01-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-01-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-01-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-01-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-01-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-01-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-02-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-02-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-02-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-02-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-02-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-02-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-02-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-02-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-02-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-03-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-03-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-03-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-03-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-03-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-03-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-03-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-03-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-03-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-04-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-04-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-04-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-04-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-04-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-04-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-04-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-04-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-04-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-05-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-05-01,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-05-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-05-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-05-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-05-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-05-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-05-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-05-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-06-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-06-01,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-06-01,"2460", "Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-06-01,"4034", "Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-06-01,"4259", "Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-06-01,"4805", "Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-06-01,"4806", "Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-06-01,"4870", "Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-06-01,"4980", "Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-07-01,"2309", "Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-07-01,"2394", "Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-07-01,"2460", "Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-07-01,"4034", "Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-07-01,"4259", "Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-07-01,"4805", "Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-07-01,"4806", "Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-07-01,"4870", "Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-07-01,"4980", "Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85`;
+
+const ATTENDANCE_INFRACTIONS_CSV = `Date,Employee Name,NCNS,AA,UA,Tardy<11,Tardy>=11,UTA,UTU,FPTO,Overbreak,Total Infractions
+2023-01-15,"Anub, Myles Kevin V.",0,0,0,1,0,0,0,0,0,1
+2023-01-17,"Lavina, Leslie Anne R.",0,1,0,0,0,0,0,0,0,1
+2023-01-18,"Lavina, Leslie Anne R.",0,1,0,0,0,0,0,0,0,1
+2023-01-19,"Lavina, Leslie Anne R.",0,1,0,0,0,0,0,0,0,1
+2023-01-20,"Lavina, Leslie Anne R.",0,1,0,0,0,0,0,0,0,1
+2023-02-07,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-02-08,"Anub, Myles Kevin V.",0,0,0,0,1,0,0,0,0,1
+2023-02-22,"Anub, Myles Kevin V.",0,0,0,1,0,0,0,0,0,1
+2023-02-28,"Ganapin, Jan Michael B.",0,0,0,0,1,0,0,0,0,1
+2023-03-15,"Lavina, Leslie Anne R.",0,0,0,0,1,0,0,0,0,1
+2023-03-16,"Lavina, Leslie Anne R.",0,0,0,0,0,0,0,0,1,1
+2023-03-19,"Ganapin, Jan Michael B.",0,0,0,0,1,0,0,0,0,1
+2023-04-05,"Lavina, Leslie Anne R.",0,0,0,0,0,0,0,0,1,1
+2023-04-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-04-18,"Ganapin, Jan Michael B.",0,0,0,0,1,0,0,0,0,1
+2023-04-20,"Lavina, Leslie Anne R.",0,0,0,0,0,0,0,0,1,1
+2023-05-19,"Lavina, Leslie Anne R.",0,0,0,0,1,0,0,0,0,1
+2023-05-22,"Lavina, Leslie Anne R.",0,1,0,0,0,0,0,0,0,1
+2023-06-02,"Lavina, Leslie Anne R.",0,0,0,0,0,0,0,0,1,1
+2023-06-05,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-06-05,"Lavina, Leslie Anne R.",0,0,0,0,0,0,0,0,1,1
+2023-06-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-06-08,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-06-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-06-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-06-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-06-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-07-16,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-07-27,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-01,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-05,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-09,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-08-10,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-08-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-13,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-16,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-16,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-08-17,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-20,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-20,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-08-24,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-08-26,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-09-02,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-09,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-15,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-09-21,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-09-22,"Ganapin, Jan Michael B.",0,0,0,0,0,0,0,0,1,1
+2023-09-23,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-02,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-14,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-24,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-10-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-01,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-04,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-20,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-23,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-11-30,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-01,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-05,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-28,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2023-12-30,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-01,"Severo, Dheznee P.",0,0,0,0,0,0,0,0,1,1
+2024-01-02,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-02,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-03,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-03,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-04,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-04,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-05,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-05,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-06,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-07,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-07,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-08,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-09,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-09,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-10,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-11,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-12,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-13,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-13,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-14,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-14,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-15,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-16,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-16,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-17,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-17,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-18,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-19,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-19,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-20,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-20,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-21,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-21,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-22,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-23,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-23,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-24,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-24,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-25,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-26,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-27,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-27,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-28,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-28,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-29,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-29,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-30,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-30,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-01-31,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-01-31,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-01,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-01,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-02,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-02,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-03,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-03,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-04,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-04,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-05,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-05,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-06,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-07,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-07,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-08,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-09,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-09,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-10,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-11,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-12,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-13,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-13,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-14,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-14,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-15,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-16,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-16,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-17,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-17,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-18,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-19,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-19,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-20,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-20,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-21,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-21,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-22,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-23,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-23,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-24,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-24,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-25,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-26,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-27,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-27,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-28,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-28,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-02-29,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-02-29,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-01,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-01,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-02,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-02,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-03,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-03,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-04,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-04,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-05,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-05,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-06,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-06,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-07,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-07,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-08,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-08,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-09,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-09,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-10,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-10,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-11,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-11,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-12,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-12,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-13,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-13,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-14,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-14,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-15,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-15,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-16,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-16,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-17,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-17,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-18,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-18,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-19,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-19,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-20,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-20,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-21,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-21,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-22,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-22,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-23,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-23,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-24,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-24,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-25,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-25,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-26,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-26,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-27,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-27,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-28,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-28,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-29,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-29,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-30,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-30,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-03-31,"Anub, Myles Kevin V.",0,0,0,0,0,0,0,0,1,1
+2024-03-31,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2024-04-01,"Boisa, John Patrick P.",0,0,0,0,0,0,0,0,1,1
+2025-04-11,"Dela Cruz, Louie G.",0,0,0,0,0,0,0,0,1,1
+2025-04-24,"Deseo, Niko N.",0,0,0,0,0,0,0,0,1,1
+2025-05-02,"Boisa, John Patrick P.",0,0,0,0,0,0,0,0,1,1
+2025-05-02,"Dela Cruz, Louie G.",0,0,0,0,0,0,0,0,1,1
+2025-05-15,"Pesimo, Alister Von John O.",0,1,0,0,0,0,0,0,0,1
+2025-05-16,"Guce, Yvan Laurentti R.",0,1,0,0,0,0,0,0,0,1
+2025-05-16,"Pesimo, Alister Von John O.",0,1,0,0,0,0,0,0,0,1
+2025-05-21,"Fajardo, Carl Mark B.",0,0,0,0,0,0,0,0,1,1
+2025-05-22,"Pesimo, Alister Von John O.",0,1,0,0,0,0,0,0,0,1
+2025-05-23,"Pesimo, Alister Von John O.",0,1,0,0,0,0,0,0,0,1
+2025-05-28,"Fajardo, Carl Mark B.",0,0,0,0,0,0,0,0,1,1
+2025-06-11,"Guce, Yvan Laurentti R.",0,1,0,0,0,0,0,0,0,1
+2025-06-25,"Orduyo, Mykjor Loiz A.",0,0,0,0,0,0,0,0,1,1
+2025-07-01,"Boisa, John Patrick P.",0,0,0,0,0,0,0,0,1,1
+2025-07-16,"Guce, Yvan Laurentti R.",0,1,0,0,0,0,0,0,0,1`;
+
+const BEHAVIORAL_POINTS_CSV = `Start of Month,Employee ID,Employee Name,Initiative,Results Orientation,Sense Of Urgency,Accountability/Judgement,Teamwork/Team Leadership,Behavioral Points,Equivalent Score
+2024-01-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-02-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-03-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2024-01-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2024-04-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,3030,"Anub, Myles Kevin V.",5,5,5,3,5,23,0.940000000000001
+2024-05-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-06-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-07-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-01-01,4034,"Dela Cruz, Louie G.",5,4,4,5,4,22,0.91
+2024-01-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2024-08-01,2394,"Cuenco, John Patrick T.",4,4,4,4,4,20,0.85
+2024-09-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-10-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-02-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2024-02-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2024-02-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2024-02-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2024-02-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2024-11-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2024-12-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-01-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-03-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-04-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-05-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-06-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-07-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-01-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-01-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-01-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-01-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-01-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-01-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-01-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-01-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-01-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-02-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-02-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-02-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-02-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-02-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-02-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-02-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-02-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-02-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-03-01,2232,"Severo, Dheznee P.",3,3,3,3,5,17,0.76
+2025-03-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-03-01,3030,"Anub, Myles Kevin V.",5,5,5,5,5,25,1.0
+2025-03-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-03-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-03-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-03-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-03-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-03-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-04-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-04-01,2394,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-04-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-04-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-04-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-04-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-04-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-04-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-04-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-05-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-05-01,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-05-01,2460,"Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-05-01,4034,"Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-05-01,4259,"Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-05-01,4805,"Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-05-01,4806,"Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-05-01,4870,"Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-05-01,4980,"Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-06-01,2309,"Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-06-01,"Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-06-01,"2460", "Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-06-01,"4034", "Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-06-01,"4259", "Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-06-01,"4805", "Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-06-01,"4806", "Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-06-01,"4870", "Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-06-01,"4980", "Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85
+2025-07-01,"2309", "Pesimo, Alister Von John O.",5,5,5,5,5,25,1.0
+2025-07-01,"2394", "Cuenco, John Patrick T.",5,5,5,5,5,25,1.0
+2025-07-01,"2460", "Deseo, Niko N.",5,5,5,5,5,25,1.0
+2025-07-01,"4034", "Dela Cruz, Louie G.",5,5,5,5,5,25,1.0
+2025-07-01,"4259", "Boisa, John Patrick P.",4,3,3,5,5,20,0.85
+2025-07-01,"4805", "Navarro, Charo Mae G.",5,5,4,4,5,23,0.940000000000001
+2025-07-01,"4806", "Orduyo, Mykjor Loiz A.",4,4,4,4,5,21,0.88
+2025-07-01,"4870", "Fajardo, Carl Mark B.",4,4,3,3,3,17,0.76
+2025-07-01,"4980", "Guce, Yvan Laurentti R.",4,4,4,4,4,20,0.85`;
+
+// --- IndexedDB Database Setup (Declaration changed, initialization moved to useEffect) ---
+// const db = new Dexie('PerformanceReviewDB'); // This line is removed from global scope
+
+function App() {
+  const [dbInstance, setDbInstance] = useState(null); // State to hold the Dexie DB instance
+  const [dbReady, setDbReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('form'); // 'form' or 'dashboard'
+  const [userRole, setUserRole] = useState('Supervisor'); // Default role
+  const formRef = useRef(null); // Ref for PDF export target
+
+  const [employeeData, setEmployeeData] = useState(MOCK_EMPLOYEES);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [selectedKpiForDrilldown, setSelectedKpiForDrilldown] = useState(null); // For dashboard chart
+
+  // State for custom message/confirmation modals
+  const [message, setMessage] = useState('');
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState('');
+
+  const [evaluationForm, setEvaluationForm] = useState(() => {
+    const savedForm = localStorage.getItem('evaluationForm');
+    return savedForm ? JSON.parse(savedForm) : {
+      employeeName: '',
+      employeeId: '',
+      position: '',
+      supervisor: '',
+      organization: '',
+      monthPeriod: '',
+      coachingDate: '',
+      kpiScores: [], // Will be dynamically populated
+      strengths: '',
+      roomForImprovement: '',
+      previousGoal: '',
+      goalForNextMonth: '',
+      developmentPath: '',
+      preparedBy: '',
+      receivedBy: '',
+    };
+  });
+
+  const [scorecardData, setScorecardData] = useState(null); // Current scorecard loaded for form
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [behavioralRecords, setBehavioralRecords] = useState([]);
+  const [kpiDefinitions, setKpiDefinitions] = useState(INITIAL_KPI_DEFINITIONS);
+
+  // Dashboard States
+  const [dashboardEmployeeFilter, setDashboardEmployeeFilter] = useState('');
+  const [dashboardMonthFilter, setDashboardMonthFilter] = useState('');
+  const [dashboardYearFilter, setDashboardYearFilter] = useState('');
+  const [filteredDashboardData, setFilteredDashboardData] = useState([]);
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [showBehavioralModal, setShowBehavioralModal] = useState(false);
+  const [showKpiManagementModal, setShowKpiManagementModal] = useState(false);
+  const [newKpi, setNewKpi] = useState({ displayName: '', type: 'number', targetToPass: null, weight: null, description: '' });
+  const [editingKpi, setEditingKpi] = useState(null);
+  const chartRef = useRef(null);
+  const chartInstance = useRef(null);
+
+  // Refs for rich text editor sections
+  const strengthsRef = useRef(null);
+  const roomForImprovementRef = useRef(null);
+  const previousGoalRef = useRef(null);
+  const goalForNextMonthRef = useRef(null);
+  const developmentPathRef = useRef(null);
+
+  // --- Utility Functions ---
+
+  // Function to show custom message
+  const showCustomMessage = (msg) => {
+    setMessage(msg);
+    setShowMessageModal(true);
+    setTimeout(() => setShowMessageModal(false), 3000); // Hide after 3 seconds
+  };
+
+  // Function to show custom confirmation
+  const showCustomConfirm = (msg, action) => {
+    setConfirmMessage(msg);
+    setConfirmAction(() => action); // Use a functional update for state
+    setShowConfirmModal(true);
+  };
+
+  // Handle confirm action
+  const handleConfirm = () => {
+    if (confirmAction) {
+      confirmAction();
+    }
+    setShowConfirmModal(false);
+    setConfirmAction(null);
+  };
+
+  const handleCancelConfirm = () => {
+    setShowConfirmModal(false);
+    setConfirmAction(null);
+  };
+
+  // Formats a number to a specific type (percentage or fixed decimals)
+  const formatValue = useCallback((value, type, decimals = 2) => {
+    if (value === null || value === undefined || isNaN(value)) return '-';
+    if (type === 'percentage') {
+      return `${(value * 100).toFixed(decimals)}%`;
+    }
+    return parseFloat(value).toFixed(decimals);
+  }, []);
+
+  // Parses CSV string into an array of objects
+  const parseCSV = useCallback((csvString) => {
+    return new Promise((resolve, reject) => {
+      // Use PapaParse from the window object after it's loaded
+      if (typeof window.Papa === 'undefined') {
+        reject(new Error('PapaParse library not loaded.'));
+        return;
+      }
+      window.Papa.parse(csvString, {
+        header: true,
+        dynamicTyping: true, // Auto-converts numbers, booleans
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.errors.length) {
+            console.error('CSV Parsing Errors:', results.errors);
+            reject(results.errors);
+          } else {
+            resolve(results.data);
+          }
+        },
+        error: (error) => reject(error),
+      });
+    });
+  }, []);
+
+  // Parses XLSX file into an array of objects
+  const parseXLSX = useCallback((file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          // Check if XLSX is available globally
+          if (typeof window.XLSX === 'undefined') {
+            reject(new Error('XLSX library not loaded.'));
+            return;
+          }
+          const data = new Uint8Array(e.target.result);
+          const workbook = window.XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const json = window.XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Read raw data first to get headers
+          resolve(json);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsArrayBuffer(file);
+    });
+  }, []);
+
+  // --- IndexedDB Operations ---
+
+  // Effect to load external scripts and initialize the database
+  useEffect(() => {
+    const loadScript = (src, id, onload, onerror) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.id = id;
+      script.onload = onload;
+      script.onerror = onerror;
+      document.head.appendChild(script);
+    };
+
+    const initializeScriptsAndDB = async () => {
+      setLoading(true);
+
+      const dexieScriptId = 'dexie-script';
+      const xlsxScriptId = 'xlsx-script';
+      const papaScriptId = 'papaparse-script';
+      const html2canvasScriptId = 'html2canvas-script';
+
+      const scriptPromises = [];
+
+      if (!document.getElementById(dexieScriptId)) {
+        scriptPromises.push(new Promise((resolve, reject) => {
+          loadScript('https://cdn.jsdelivr.net/npm/dexie@3.2.3/dist/dexie.min.js', dexieScriptId, resolve, reject);
+        }));
+      }
+      if (!document.getElementById(xlsxScriptId)) {
+        scriptPromises.push(new Promise((resolve, reject) => {
+          loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', xlsxScriptId, resolve, reject);
+        }));
+      }
+      if (!document.getElementById(papaScriptId)) {
+          scriptPromises.push(new Promise((resolve, reject) => {
+              loadScript('https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js', papaScriptId, resolve, reject);
+          }));
+      }
+      if (!document.getElementById(html2canvasScriptId)) {
+          scriptPromises.push(new Promise((resolve, reject) => {
+              loadScript('https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js', html2canvasScriptId, resolve, reject);
+          }));
+      }
+
+      try {
+        await Promise.all(scriptPromises);
+        console.log('All external scripts loaded.');
+
+        if (window.Dexie && window.XLSX && window.Papa && window.html2canvas) {
+          console.log('All required libraries are available.');
+          const newDb = new window.Dexie('PerformanceReviewDB');
+          newDb.version(1).stores({
+            scorecards: '++id, employeeName, startOfMonth',
+            attendance: '++id, employeeName, date',
+            behavioral: '++id, employeeName, startOfMonth',
+            kpiDefinitions: 'id',
+          });
+          setDbInstance(newDb);
+          setDbReady(true);
+        } else {
+          console.error("One or more required libraries were not loaded.");
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Failed to load one or more external scripts:", error);
+        setLoading(false);
+      }
+    };
+
+    initializeScriptsAndDB();
+  }, []);
+
+  // Effect to populate database with initial data IF dbInstance is ready
+  useEffect(() => {
+    const populateDbIfEmpty = async () => {
+      if (!dbInstance) {
+        console.log("Waiting for dbInstance to be ready before populating data.");
+        return;
+      }
+      setLoading(true);
+      try {
+        const count = await dbInstance.scorecards.count();
+        if (count === 0) {
+          console.log('Database is empty, populating with initial CSV data...');
+          const parsedScorecards = await parseCSV(SCORECARD_BREAKDOWN_CSV);
+          const parsedAttendance = await parseCSV(ATTENDANCE_INFRACTIONS_CSV);
+          const parsedBehavioral = await parseCSV(BEHAVIORAL_POINTS_CSV);
+
+          // Add IDs to each record for IndexedDB
+          const scorecardsWithId = parsedScorecards.map((item, index) => ({ ...item, id: `sc_${index}` }));
+          const attendanceWithId = parsedAttendance.map((item, index) => ({ ...item, id: `att_${index}` }));
+          const behavioralWithId = parsedBehavioral.map((item, index) => ({ ...item, id: `beh_${index}` }));
+
+          await dbInstance.scorecards.bulkAdd(scorecardsWithId);
+          await dbInstance.attendance.bulkAdd(attendanceWithId);
+          await dbInstance.behavioral.bulkAdd(behavioralWithId);
+
+          // Populate KPI definitions
+          await dbInstance.kpiDefinitions.bulkPut(INITIAL_KPI_DEFINITIONS);
+          setKpiDefinitions(INITIAL_KPI_DEFINITIONS); // Set React state too
+          console.log('Database populated successfully.');
+        } else {
+          console.log('Database already contains data.');
+          // Load KPI definitions from DB
+          const savedKpis = await dbInstance.kpiDefinitions.toArray();
+          if (savedKpis.length > 0) {
+            setKpiDefinitions(savedKpis);
+          } else {
+            // If KPI definitions are missing but other data exists, add defaults
+            await dbInstance.kpiDefinitions.bulkPut(INITIAL_KPI_DEFINITIONS);
+            setKpiDefinitions(INITIAL_KPI_DEFINITIONS);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing database data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (dbInstance && dbReady) { // Only run this when dbInstance is available and dbReady is true
+      populateDbIfEmpty();
+    }
+  }, [dbInstance, dbReady, parseCSV]); // Dependencies for this effect
+
+
+  // Load scorecard data for the form based on selected employee and period
+  const fetchScorecardDataForForm = useCallback(async () => {
+    if (!dbInstance || !selectedEmployee || !evaluationForm.monthPeriod || !evaluationForm.coachingDate) {
+      setScorecardData(null);
+      setAttendanceRecords([]);
+      setBehavioralRecords([]);
+      // Initialize KPI scores based on active definitions when no specific data is loaded
+      const initialKpiScores = kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => ({
+        kpi: kpiDef.displayName,
+        description: kpiDef.description,
+        weight: kpiDef.weight,
+        targetToPass: kpiDef.targetToPass,
+        actualScore: null,
+        rating: null,
+      }));
+      setEvaluationForm(prev => ({ ...prev, kpiScores: initialKpiScores }));
+      return;
+    }
+
+    setLoading(true);
+    const monthYear = evaluationForm.coachingDate.substring(0, 7); // YYYY-MM
+    try {
+      // Find scorecard data
+      const scorecardRecord = await dbInstance.scorecards
+        .where('Employee Name').equalsIgnoreCase(selectedEmployee.name)
+        .and(record => record['Start of Month'].startsWith(monthYear))
+        .first();
+
+      if (scorecardRecord) {
+        setScorecardData(scorecardRecord);
+        // Map KPI values from the record to the form's kpiScores array
+        const currentKpiScores = kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => {
+          let actualScore = scorecardRecord[kpiDef.id] !== undefined ? scorecardRecord[kpiDef.id] : null;
+          let rating = scorecardRecord[`${kpiDef.id} Rating`] !== undefined ? scorecardRecord[`${kpiDef.id} Rating`] : null;
+
+          // Special handling for Behavioral Points breakdown
+          if (kpiDef.id === 'Behavioral Points') {
+            actualScore = scorecardRecord['Behavioral Points'] !== undefined ? scorecardRecord['Behavioral Points'] : null;
+            rating = scorecardRecord['Equivalent Score'] !== undefined ? scorecardRecord['Equivalent Score'] : null;
+          }
+
+          return {
+            kpi: kpiDef.displayName,
+            description: kpiDef.description,
+            weight: kpiDef.weight,
+            targetToPass: kpiDef.targetToPass,
+            actualScore: actualScore,
+            rating: rating,
+          };
+        });
+        setEvaluationForm(prev => ({ ...prev, kpiScores: currentKpiScores }));
+      } else {
+        setScorecardData(null);
+        // If no record, initialize KPI scores based on active definitions
+        const initialKpiScores = kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => ({
+          kpi: kpiDef.displayName,
+          description: kpiDef.description,
+          weight: kpiDef.weight,
+          targetToPass: kpiDef.targetToPass,
+          actualScore: null,
+          rating: null,
+        }));
+        setEvaluationForm(prev => ({ ...prev, kpiScores: initialKpiScores }));
+      }
+
+      // Fetch attendance records for drill-down
+      const employeeAttendance = await dbInstance.attendance
+        .where('Employee Name').equalsIgnoreCase(selectedEmployee.name)
+        .and(record => record['Date'].startsWith(monthYear))
+        .toArray();
+      setAttendanceRecords(employeeAttendance);
+
+      // Fetch behavioral records for drill-down
+      const employeeBehavioral = await dbInstance.behavioral
+        .where('Employee Name').equalsIgnoreCase(selectedEmployee.name)
+        .and(record => record['Start of Month'].startsWith(monthYear))
+        .toArray();
+      setBehavioralRecords(employeeBehavioral);
+
+    } catch (error) {
+      console.error('Error fetching scorecard data from DB:', error);
+      setScorecardData(null);
+      setAttendanceRecords([]);
+      setBehavioralRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [dbInstance, selectedEmployee, evaluationForm.monthPeriod, evaluationForm.coachingDate, kpiDefinitions]); // Added dbInstance to dependencies
+
+  useEffect(() => {
+    if (dbReady) { // Only fetch form data once the DB is confirmed ready
+      fetchScorecardDataForForm();
+    }
+  }, [fetchScorecardDataForForm, dbReady]);
+
+  // --- Local Storage Persistence for Form ---
+  useEffect(() => {
+    if (dbReady) { // Only save to local storage once DB is ready
+      localStorage.setItem('evaluationForm', JSON.stringify(evaluationForm));
+    }
+  }, [evaluationForm, dbReady]);
+
+  // --- Event Handlers ---
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setEvaluationForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEmployeeSelect = (e) => {
+    const employeeName = e.target.value;
+    const employee = MOCK_EMPLOYEES.find(emp => emp.name === employeeName);
+    setSelectedEmployee(employee);
+    setEvaluationForm(prev => ({
+      ...prev,
+      employeeName: employee ? employee.name : '',
+      employeeId: employee ? employee.id : '',
+      position: employee ? employee.position : '',
+      supervisor: employee ? employee.supervisor : '',
+      organization: employee ? employee.organization : '',
+      preparedBy: employee ? employee.supervisor : '', // Auto-fill Prepared By
+      receivedBy: employee ? employee.name : '', // Auto-fill Received By
+    }));
+  };
+
+  const handleKpiTableChange = (index, field, value) => {
+    const updatedKpiScores = [...evaluationForm.kpiScores];
+    updatedKpiScores[index][field] = value;
+    setEvaluationForm(prev => ({ ...prev, kpiScores: updatedKpiScores }));
+  };
+
+  const handleRichTextCommand = (command, ref) => {
+    document.execCommand(command, false, null);
+    ref.current.focus();
+  };
+
+  const handleClearForm = () => {
+    showCustomConfirm('Are you sure you want to clear the entire form?', () => {
+      const initialFormState = {
+        employeeName: '',
+        employeeId: '',
+        position: '',
+        supervisor: '',
+        organization: '',
+        monthPeriod: '',
+        coachingDate: '',
+        kpiScores: kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => ({ // Re-initialize with active KPIs
+          kpi: kpiDef.displayName,
+          description: kpiDef.description,
+          weight: kpiDef.weight,
+          targetToPass: kpiDef.targetToPass,
+          actualScore: null,
+          rating: null,
+        })),
+        strengths: '',
+        roomForImprovement: '',
+        previousGoal: '',
+        goalForNextMonth: '',
+        developmentPath: '',
+        preparedBy: '',
+        receivedBy: '',
+      };
+      setEvaluationForm(initialFormState);
+      setSelectedEmployee(null); // Clear selected employee
+      setScorecardData(null); // Clear loaded scorecard data
+      setAttendanceRecords([]);
+      setBehavioralRecords([]);
+      showCustomMessage('Form cleared successfully!');
+    });
+  };
+
+  const handleClearFile = () => {
+    document.getElementById('file-upload').value = '';
+    setEvaluationForm(prev => ({
+      ...prev,
+      kpiScores: kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => ({
+        kpi: kpiDef.displayName,
+        description: kpiDef.description,
+        weight: kpiDef.weight,
+        targetToPass: kpiDef.targetToPass,
+        actualScore: null,
+        rating: null,
+      })),
+    }));
+    showCustomMessage('Uploaded file data cleared from the form.');
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Ensure dbInstance is available before proceeding
+    if (!dbInstance) {
+        showCustomMessage('Database not ready. Please wait a moment and try again.');
+        return;
+    }
+
+    const fileName = file.name;
+    let parsedData;
+
+    try {
+      if (fileName.endsWith('.csv')) {
+        parsedData = await parseCSV(await file.text());
+      } else if (fileName.endsWith('.xlsx')) {
+        // For XLSX, parseXLSX returns an array of arrays (raw sheet data)
+        const rawSheetData = await parseXLSX(file);
+        if (rawSheetData.length === 0) {
+          showCustomMessage("Uploaded XLSX file is empty or malformed.");
+          return;
+        }
+        // Convert to array of objects with header as first row
+        const headers = rawSheetData[0];
+        const dataRows = rawSheetData.slice(1);
+        parsedData = dataRows.map(row => {
+          const obj = {};
+          headers.forEach((header, index) => {
+            obj[header] = row[index];
+          });
+          return obj;
+        });
+      } else {
+        showCustomMessage('Unsupported file type. Please upload a .csv or .xlsx file.');
+        return;
+      }
+
+      if (parsedData.length === 0) {
+        showCustomMessage("No data found in the uploaded file.");
+        return;
+      }
+
+      // Assume the uploaded file represents a single scorecard update for the current employee/month
+      const uploadedRecord = parsedData[0]; // Assuming first row has the data for the current scorecard
+
+      // Update form's KPI scores from the uploaded data, mapping to active KPI definitions
+      const updatedKpiScores = kpiDefinitions.filter(kpi => kpi.isActive).map(kpiDef => {
+        const uploadedValue = uploadedRecord[kpiDef.id]; // Try exact match
+        let actualScore = uploadedValue !== undefined ? uploadedValue : null;
+        let rating = uploadedRecord[`${kpiDef.id} Rating`] !== undefined ? uploadedRecord[`${kpiDef.id} Rating`] : null;
+
+        // Special handling for Behavioral Points breakdown
+        if (kpiDef.id === 'Behavioral Points') {
+          actualScore = uploadedRecord['Behavioral Points'] !== undefined ? uploadedRecord['Behavioral Points'] : null;
+          rating = uploadedRecord['Equivalent Score'] !== undefined ? uploadedRecord['Equivalent Score'] : null;
+        }
+
+        return {
+          kpi: kpiDef.displayName,
+          description: kpiDef.description,
+          weight: kpiDef.weight,
+          targetToPass: kpiDef.targetToPass,
+          actualScore: actualScore,
+          rating: rating,
+        };
+      });
+
+      setEvaluationForm(prev => ({
+        ...prev,
+        kpiScores: updatedKpiScores,
+      }));
+
+      // Store new data into IndexedDB
+      // For simplicity, we'll overwrite if a record for the same employee/month exists
+      // In a real app, you might have versioning or more complex merge logic.
+      const monthYear = evaluationForm.coachingDate.substring(0, 7); // YYYY-MM
+      const existingRecord = await dbInstance.scorecards
+        .where('Employee Name').equalsIgnoreCase(selectedEmployee.name)
+        .and(record => record['Start of Month'].startsWith(monthYear))
+        .first();
+
+      const newScorecardEntry = {
+        'Employee Name': selectedEmployee.name,
+        'Start of Month': evaluationForm.coachingDate, // Use coaching date as start of month for this entry
+        // Copy all relevant fields from the uploaded record, and map to our internal KPI definitions
+        ...uploadedRecord,
+      };
+
+      // Ensure that numerical values are actually numbers for storage
+      for (const key in newScorecardEntry) {
+        if (!isNaN(newScorecardEntry[key]) && typeof newScorecardEntry[key] === 'string' && newScorecardEntry[key].trim() !== '') {
+            // Check if it's a percentage string (e.g., "95.00%") and convert to decimal
+            if (typeof newScorecardEntry[key] === 'string' && newScorecardEntry[key].endsWith('%')) {
+                newScorecardEntry[key] = parseFloat(newScorecardEntry[key]) / 100;
+            } else {
+                newScorecardEntry[key] = parseFloat(newScorecardEntry[key]);
+            }
+        }
+      }
+
+      if (existingRecord) {
+        await dbInstance.scorecards.update(existingRecord.id, newScorecardEntry);
+        showCustomMessage('Scorecard data updated in database!');
+      } else {
+        await dbInstance.scorecards.add(newScorecardEntry);
+        showCustomMessage('New scorecard data added to database!');
+      }
+
+      // Re-fetch data for the form to ensure it reflects the latest DB state
+      fetchScorecardDataForForm();
+
+    } catch (error) {
+      console.error('Error processing file upload:', error);
+      showCustomMessage('Failed to process file. Please check console for details.');
+    }
+  };
+
+
+  const handleSaveAsPDF = async () => {
+    // Required fields for PDF generation
+    const requiredFields = [
+      evaluationForm.employeeName,
+      evaluationForm.monthPeriod,
+      evaluationForm.coachingDate,
+      evaluationForm.preparedBy,
+      evaluationForm.receivedBy,
+    ];
+
+    if (requiredFields.some(field => !field)) {
+      showCustomMessage('Please fill in all required fields (Employee, Period, Coaching Date, Prepared By, Received By) before saving as PDF.');
+      return;
+    }
+    
+    // Ensure html2canvas is available
+    if (typeof window.html2canvas === 'undefined') {
+        showCustomMessage('PDF generation library not loaded. Please wait and try again.');
+        return;
+    }
+
+    const input = formRef.current;
+    if (!input) return;
+
+    setLoading(true);
+    try {
+      const canvas = await window.html2canvas(input, {
+        scale: 2, // Improve resolution
+        useCORS: true, // If any images are from external sources
+        logging: true,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save(`Performance_Evaluation_${evaluationForm.employeeName.replace(/[^a-zA-Z0-9]/g, '_')}_${evaluationForm.coachingDate}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showCustomMessage('Failed to generate PDF. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Block Ctrl+P
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.ctrlKey && event.key === 'p') {
+        event.preventDefault();
+        showCustomMessage('Printing is disabled. Please use the "Save as PDF" button to export the evaluation.');
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // --- Dashboard Logic ---
+
+  const fetchDashboardData = useCallback(async () => {
+    if (!dbInstance) return; // Ensure dbInstance is ready
+    setLoading(true);
+    try {
+      let scorecardsQuery = dbInstance.scorecards;
+      let attendanceQuery = dbInstance.attendance;
+      let behavioralQuery = dbInstance.behavioral;
+
+      let filteredScorecards = await scorecardsQuery.toArray();
+      let filteredAttendance = await attendanceQuery.toArray();
+      let filteredBehavioral = await behavioralQuery.toArray();
+
+      // Apply filters manually after fetching all data, as Dexie.js query chaining might not
+      // handle complex combinations across multiple levels directly like this.
+      if (dashboardEmployeeFilter) {
+          filteredScorecards = filteredScorecards.filter(item => item['Employee Name'] === dashboardEmployeeFilter);
+          filteredAttendance = filteredAttendance.filter(item => item['Employee Name'] === dashboardEmployeeFilter);
+          filteredBehavioral = filteredBehavioral.filter(item => item['Employee Name'] === dashboardEmployeeFilter);
+      }
+
+      if (dashboardMonthFilter && dashboardYearFilter) {
+          const monthYearString = `${dashboardYearFilter}-${dashboardMonthFilter.padStart(2, '0')}`;
+          filteredScorecards = filteredScorecards.filter(item => item['Start of Month'] && item['Start of Month'].startsWith(monthYearString));
+          filteredAttendance = filteredAttendance.filter(item => item['Date'] && item['Date'].startsWith(monthYearString));
+          filteredBehavioral = filteredBehavioral.filter(item => item['Start of Month'] && item['Start of Month'].startsWith(monthYearString));
+      } else if (dashboardYearFilter) {
+          filteredScorecards = filteredScorecards.filter(item => item['Start of Month'] && item['Start of Month'].startsWith(dashboardYearFilter));
+          filteredAttendance = filteredAttendance.filter(item => item['Date'] && item['Date'].startsWith(dashboardYearFilter));
+          filteredBehavioral = filteredBehavioral.filter(item => item['Start of Month'] && item['Start of Month'].startsWith(dashboardYearFilter));
+      }
+
+
+      // Aggregate data for dashboard (e.g., average scores)
+      const aggregated = {};
+      const activeKpiDefs = kpiDefinitions.filter(kpi => kpi.isActive);
+
+      filteredScorecards.forEach(sc => {
+        const employeeName = sc['Employee Name'];
+        if (!aggregated[employeeName]) {
+          aggregated[employeeName] = {
+            count: 0,
+            scoreSum: {}, // Sum for each KPI
+            kpiAverages: {}, // Averages for each KPI
+            attendanceTotal: 0,
+            behavioralTotal: 0,
+            behavioralBreakdown: {} // Sum for each behavioral criteria
+          };
+          activeKpiDefs.forEach(kpiDef => {
+            aggregated[employeeName].scoreSum[kpiDef.id] = 0;
+            if (['Initiative', 'Results Orientation', 'Sense Of Urgency', 'Accountability/Judgement', 'Teamwork/Team Leadership'].includes(kpiDef.id)) {
+                aggregated[employeeName].behavioralBreakdown[kpiDef.id] = 0;
+            }
+          });
+        }
+        aggregated[employeeName].count++;
+
+        activeKpiDefs.forEach(kpiDef => {
+          const score = sc[kpiDef.id];
+          if (score !== null && score !== undefined && !isNaN(score)) {
+            aggregated[employeeName].scoreSum[kpiDef.id] += score;
+          }
+          if (['Initiative', 'Results Orientation', 'Sense Of Urgency', 'Accountability/Judgement', 'Teamwork/Team Leadership'].includes(kpiDef.id)) {
+            const behScore = sc[kpiDef.id];
+            if (behScore !== null && behScore !== undefined && !isNaN(behScore)) {
+                aggregated[employeeName].behavioralBreakdown[kpiDef.id] += behScore;
+            }
+          }
+        });
+
+        // Add total infractions
+        if (sc['Total Infractions'] !== undefined && sc['Total Infractions'] !== null && !isNaN(sc['Total Infractions'])) {
+          aggregated[employeeName].attendanceTotal += sc['Total Infractions'];
+        }
+        // Add behavioral points
+        if (sc['Behavioral Points'] !== undefined && sc['Behavioral Points'] !== null && !isNaN(sc['Behavioral Points'])) {
+          aggregated[employeeName].behavioralTotal += sc['Behavioral Points'];
+        }
+      });
+
+      // Calculate averages
+      const results = Object.keys(aggregated).map(employeeName => {
+        const empData = aggregated[employeeName];
+        const kpiAverages = {};
+        activeKpiDefs.forEach(kpiDef => {
+          kpiAverages[kpiDef.id] = empData.count > 0 ? empData.scoreSum[kpiDef.id] / empData.count : 0;
+        });
+
+        const behavioralBreakdownAverages = {};
+        for (const key in empData.behavioralBreakdown) {
+            behavioralBreakdownAverages[key] = empData.count > 0 ? empData.behavioralBreakdown[key] / empData.count : 0;
+        }
+
+        return {
+          employeeName,
+          averageScores: kpiAverages,
+          averageAttendance: empData.count > 0 ? empData.attendanceTotal / empData.count : 0,
+          averageBehavioralPoints: empData.count > 0 ? empData.behavioralTotal / empData.count : 0,
+          averageBehavioralBreakdown: behavioralBreakdownAverages,
+          rawAttendance: filteredAttendance.filter(rec => rec['Employee Name'] === employeeName), // Pass raw for modal
+          rawBehavioral: filteredBehavioral.filter(rec => rec['Employee Name'] === employeeName), // Pass raw for modal
+        };
+      });
+
+      setFilteredDashboardData(results);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setLoading(false);
+      setFilteredDashboardData([]);
+    }
+  }, [dbInstance, dashboardEmployeeFilter, dashboardMonthFilter, dashboardYearFilter, kpiDefinitions]);
+
+  useEffect(() => {
+    if (dbReady) { // Only fetch dashboard data once the DB is confirmed ready
+      fetchDashboardData();
+    }
+  }, [fetchDashboardData, dbReady]);
+
+
+  // Chart.js rendering
+  useEffect(() => {
+    if (chartRef.current && filteredDashboardData.length > 0 && selectedKpiForDrilldown) {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+      }
+
+      const labels = filteredDashboardData.map(d => d.employeeName);
+      const data = filteredDashboardData.map(d => {
+        const kpiDef = kpiDefinitions.find(k => k.displayName === selectedKpiForDrilldown.displayName);
+        if (kpiDef && kpiDef.type === 'percentage') {
+          return d.averageScores[selectedKpiForDrilldown.id] * 100; // Display as percentage value
+        }
+        return d.averageScores[selectedKpiForDrilldown.id];
+      });
+
+      const ctx = chartRef.current.getContext('2d');
+      chartInstance.current = new Chart(ctx, {
+        type: 'bar', // Or 'radar' based on preference
+        data: {
+          labels: labels,
+          datasets: [{
+            label: `Average ${selectedKpiForDrilldown.displayName}`,
+            data: data,
+            backgroundColor: FIVE9_COLORS.primary,
+            borderColor: FIVE9_COLORS.primary,
+            borderWidth: 1,
+            borderRadius: 5,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  let label = context.dataset.label || '';
+                  if (label) {
+                      label += ': ';
+                  }
+                  const kpiDef = kpiDefinitions.find(k => k.displayName === selectedKpiForDrilldown.displayName);
+                  if (kpiDef && kpiDef.type === 'percentage') {
+                    return label + formatValue(context.raw / 100, 'percentage');
+                  }
+                  return label + formatValue(context.raw, 'number');
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: selectedKpiForDrilldown.type === 'percentage' ? 'Average Score (%)' : 'Average Score',
+                font: {
+                  family: FONT_FAMILY
+                }
+              },
+              ticks: {
+                callback: function(value) {
+                  if (selectedKpiForDrilldown.type === 'percentage') {
+                    return value + '%';
+                  }
+                  return value;
+                },
+                font: {
+                  family: FONT_FAMILY
+                }
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Employee Name',
+                font: {
+                  family: FONT_FAMILY
+                }
+              },
+              ticks: {
+                font: {
+                  family: FONT_FAMILY
+                }
+              }
+            }
+          },
+          animation: {
+            duration: 1000,
+            easing: 'easeInOutQuad'
+          }
+        }
+      });
+    }
+
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+      }
+    };
+  }, [filteredDashboardData, selectedKpiForDrilldown, formatValue, kpiDefinitions]);
+
+  // --- KPI Management Logic ---
+  const handleAddKpi = async () => {
+    if (!newKpi.displayName || !newKpi.type) {
+      showCustomMessage('Display Name and Type are required for a new KPI.');
+      return;
+    }
+    // Ensure dbInstance is available
+    if (!dbInstance) {
+        showCustomMessage('Database not ready. Please wait a moment and try again.');
+        return;
+    }
+
+    const kpiId = newKpi.displayName.replace(/[^a-zA-Z0-9]/g, ''); // Simple ID generation
+    const fullKpi = { ...newKpi, id: kpiId, isActive: true };
+    try {
+      await dbInstance.kpiDefinitions.add(fullKpi);
+      setKpiDefinitions(await dbInstance.kpiDefinitions.toArray());
+      setNewKpi({ displayName: '', type: 'number', targetToPass: null, weight: null, description: '' }); // Reset form
+      showCustomMessage('KPI added successfully!');
+    } catch (error) {
+      console.error('Error adding KPI:', error);
+      showCustomMessage('Failed to add KPI. ID might already exist.');
+    }
+  };
+
+  const handleUpdateKpi = async () => {
+    if (!editingKpi) return;
+    // Ensure dbInstance is available
+    if (!dbInstance) {
+        showCustomMessage('Database not ready. Please wait a moment and try again.');
+        return;
+    }
+
+    try {
+      await dbInstance.kpiDefinitions.update(editingKpi.id, editingKpi);
+      setKpiDefinitions(await dbInstance.kpiDefinitions.toArray());
+      setEditingKpi(null); // Exit editing mode
+      showCustomMessage('KPI updated successfully!');
+    } catch (error) {
+      console.error('Error updating KPI:', error);
+      showCustomMessage('Failed to update KPI.');
+    }
+  };
+
+  const handleDeleteKpi = async (id) => {
+    // Ensure dbInstance is available
+    if (!dbInstance) {
+        showCustomMessage('Database not ready. Please wait a moment and try again.');
+        return;
+    }
+
+    showCustomConfirm('Are you sure you want to delete this KPI definition? This will NOT delete existing data.', async () => {
+      try {
+        await dbInstance.kpiDefinitions.delete(id);
+        setKpiDefinitions(await dbInstance.kpiDefinitions.toArray());
+        showCustomMessage('KPI deleted successfully!');
+      }
+      catch (error) {
+        console.error('Error deleting KPI:', error);
+        showCustomMessage('Failed to delete KPI.');
+      }
+    });
+  };
+
+  const handleToggleKpiActive = async (kpi) => {
+    // Ensure dbInstance is available
+    if (!dbInstance) {
+        showCustomMessage('Database not ready. Please wait a moment and try again.');
+        return;
+    }
+
+    try {
+        await dbInstance.kpiDefinitions.update(kpi.id, { isActive: !kpi.isActive });
+        setKpiDefinitions(await dbInstance.kpiDefinitions.toArray());
+        showCustomMessage(`KPI '${kpi.displayName}' visibility toggled.`);
+    } catch (error) {
+        console.error('Error toggling KPI active status:', error);
+        showCustomMessage('Failed to toggle KPI status.');
+    }
+  };
+
+
+  // --- Render Components ---
+
+  const renderHeader = () => (
+    <header className="bg-gradient-to-r from-five9-primary to-five9-secondary text-white p-4 shadow-lg sticky top-0 z-10 flex flex-col sm:flex-row items-center justify-between">
+      <div className="flex items-center">
+        {/* Placeholder for Five9 Logo */}
+        <img src="https://placehold.co/40x40/ffffff/000000?text=Logo" alt="Five9 Logo" className="h-10 w-10 mr-3 rounded-full" />
+        <h1 className="text-xl sm:text-2xl font-bold font-['Open_Sans']">Monthly Performance Evaluation</h1>
+      </div>
+      <p className="text-sm italic mt-2 sm:mt-0 opacity-90 font-['Roboto']">Empowering productive conversations.</p>
+    </header>
+  );
+
+  const renderEmployeeSelection = () => (
+    <section className="p-6 bg-white rounded-lg shadow-md mb-6 border border-gray-200">
+      <h2 className="text-xl font-semibold text-five9-darkGray mb-4 font-['Open_Sans']">Employee Metadata</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div>
+          <label htmlFor="employeeName" className="block text-sm font-medium text-gray-700">Employee Name <span className="text-red-500">*</span></label>
+          <select
+            id="employeeName"
+            name="employeeName"
+            value={evaluationForm.employeeName}
+            onChange={handleEmployeeSelect}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            required
+          >
+            <option value="">Select an Employee</option>
+            {employeeData.map(emp => (
+              <option key={emp.id} value={emp.name}>{emp.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="employeeId" className="block text-sm font-medium text-gray-700">Employee ID</label>
+          <input
+            type="text"
+            id="employeeId"
+            name="employeeId"
+            value={evaluationForm.employeeId}
+            readOnly
+            className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm p-2 border"
+          />
+        </div>
+        <div>
+          <label htmlFor="position" className="block text-sm font-medium text-gray-700">Position</label>
+          <input
+            type="text"
+            id="position"
+            name="position"
+            value={evaluationForm.position}
+            readOnly
+            className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm p-2 border"
+          />
+        </div>
+        <div>
+          <label htmlFor="supervisor" className="block text-sm font-medium text-gray-700">Supervisor</label>
+          <input
+            type="text"
+            id="supervisor"
+            name="supervisor"
+            value={evaluationForm.supervisor}
+            readOnly
+            className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm p-2 border"
+          />
+        </div>
+        <div>
+          <label htmlFor="organization" className="block text-sm font-medium text-gray-700">Organization</label>
+          <input
+            type="text"
+            id="organization"
+            name="organization"
+            value={evaluationForm.organization}
+            readOnly
+            className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm p-2 border"
+          />
+        </div>
+      </div>
+    </section>
+  );
+
+  const renderEvaluationPeriod = () => (
+    <section className="p-6 bg-white rounded-lg shadow-md mb-6 border border-gray-200">
+      <h2 className="text-xl font-semibold text-five9-darkGray mb-4 font-['Open_Sans']">Evaluation Period</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="monthPeriod" className="block text-sm font-medium text-gray-700">Month Period <span className="text-red-500">*</span></label>
+          <input
+            type="month"
+            id="monthPeriod"
+            name="monthPeriod"
+            value={evaluationForm.monthPeriod}
+            onChange={handleInputChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            required
+          />
+        </div>
+        <div>
+          <label htmlFor="coachingDate" className="block text-sm font-medium text-gray-700">Coaching Date <span className="text-red-500">*</span></label>
+          <input
+            type="date"
+            id="coachingDate"
+            name="coachingDate"
+            value={evaluationForm.coachingDate}
+            onChange={handleInputChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            required
+          />
+        </div>
+      </div>
+    </section>
+  );
+
+  const renderScorecardBreakdown = () => {
+    const getScoreValue = (kpiName) => {
+      const kpi = kpiDefinitions.find(d => d.displayName === kpiName);
+      if (!kpi || scorecardData === null) return '-';
+
+      let value = scorecardData[kpi.id];
+      if (value === undefined || value === null) {
+        // Fallback for "Rating" columns if primary ID column not found, but rating might be there
+        value = scorecardData[`${kpi.id} Rating`];
+      }
+
+      // Special handling for Behavioral Points for UI summary
+      if (kpi.id === 'Behavioral Points' && scorecardData['Behavioral Points'] !== undefined) {
+        value = scorecardData['Behavioral Points'];
+      }
+      if (kpi.id === 'Behavioral Rating' && scorecardData['Equivalent Score'] !== undefined) {
+          value = scorecardData['Equivalent Score'];
+      }
+      return formatValue(value, kpi.type);
+    };
+
+    return (
+      <section className="p-6 bg-white rounded-lg shadow-md mb-6 border border-gray-200">
+        <h2 className="text-xl font-semibold text-five9-darkGray mb-4 font-['Open_Sans']">Scorecard Breakdown</h2>
+
+        {/* Summary Boxes */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-five9-lightGray p-4 rounded-lg text-center shadow-inner">
+            <h3 className="text-lg font-medium text-five9-darkGray">Overall Score</h3>
+            <p className="text-2xl font-bold text-five9-primary">{getScoreValue('Final Score')}</p>
+          </div>
+          <div className="bg-five9-lightGray p-4 rounded-lg text-center shadow-inner">
+            <h3 className="text-lg font-medium text-five9-darkGray">Core Score</h3>
+            <p className="text-2xl font-bold text-five9-primary">{getScoreValue('Core Score')}</p>
+          </div>
+          <div className="bg-five9-lightGray p-4 rounded-lg text-center shadow-inner">
+            <h3 className="text-lg font-medium text-five9-darkGray">Behavioral</h3>
+            <p className="text-2xl font-bold text-five9-primary">{getScoreValue('Behavioral Rating')}</p>
+          </div>
+        </div>
+
+        {/* File Upload */}
+        <div className="mb-4">
+          <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">Upload Scorecard Data (.csv, .xlsx)</label>
+          <div className="flex items-center">
+            <input
+              type="file"
+              id="file-upload"
+              accept=".csv, .xlsx"
+              onChange={handleFileUpload}
+              className="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-five9-primary file:text-white
+                hover:file:bg-five9-secondary cursor-pointer"
+            />
+            <button
+              onClick={handleClearFile}
+              className="ml-4 px-4 py-2 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 transition duration-200 ease-in-out text-sm"
+            >
+              Clear Upload
+            </button>
+          </div>
+        </div>
+
+        {/* KPI Table */}
+        <h3 className="text-lg font-semibold text-five9-darkGray mb-3 mt-6 font-['Open_Sans']">Key Performance Indicators</h3>
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-five9-lightGray">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">KPI</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Weight</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target to Pass</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Score</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {evaluationForm.kpiScores.filter(kpi => kpiDefinitions.find(def => def.displayName === kpi.kpi && def.isActive)).map((kpi, index) => {
+                const kpiDef = kpiDefinitions.find(def => def.displayName === kpi.kpi);
+                if (!kpiDef) return null; // Should not happen with filtering above
+
+                return (
+                  <tr key={kpi.kpi}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{kpi.kpi}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{kpi.description || kpiDef.description || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{kpi.weight !== null ? kpi.weight : (kpiDef.weight !== null ? kpiDef.weight : '-')}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {kpi.targetToPass !== null ? formatValue(kpi.targetToPass, kpiDef.type) : (kpiDef.targetToPass !== null ? formatValue(kpiDef.targetToPass, kpiDef.type) : '-')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="text"
+                        value={kpi.actualScore !== null ? (kpiDef.type === 'percentage' ? (kpi.actualScore * 100).toFixed(2) : parseFloat(kpi.actualScore).toFixed(2)) : ''}
+                        onChange={(e) => handleKpiTableChange(index, 'actualScore', e.target.value)}
+                        className="w-24 p-1 border rounded-md text-sm text-center"
+                        placeholder="N/A"
+                        readOnly={userRole === 'Agent'}
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="text"
+                        value={kpi.rating !== null ? (kpiDef.type === 'percentage' ? (kpi.rating * 100).toFixed(2) : parseFloat(kpi.rating).toFixed(2)) : ''}
+                        onChange={(e) => handleKpiTableChange(index, 'rating', e.target.value)}
+                        className="w-24 p-1 border rounded-md text-sm text-center"
+                        placeholder="N/A"
+                        readOnly={userRole === 'Agent'}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {evaluationForm.kpiScores.length === 0 && (
+            <div className="p-4 text-center text-gray-500">No KPIs defined or loaded for this employee/period.</div>
+          )}
+        </div>
+      </section>
+    );
+  };
+
+  const renderFeedbackSections = () => (
+    <section className="p-6 bg-white rounded-lg shadow-md mb-6 border border-gray-200">
+      <h2 className="text-xl font-semibold text-five9-darkGray mb-4 font-['Open_Sans']">Feedback Sections</h2>
+      <div className="flex space-x-2 mb-4">
+        <button
+          className="px-3 py-1 bg-five9-secondary text-white rounded-md shadow-sm hover:bg-five9-primary transition duration-200"
+          onClick={() => handleRichTextCommand('bold', strengthsRef)}
+          disabled={userRole === 'Agent'}
+        >
+          <strong>B</strong>
+        </button>
+        <button
+          className="px-3 py-1 bg-five9-secondary text-white rounded-md shadow-sm hover:bg-five9-primary transition duration-200"
+          onClick={() => handleRichTextCommand('italic', strengthsRef)}
+          disabled={userRole === 'Agent'}
+        >
+          <em>I</em>
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="strengths" className="block text-sm font-medium text-gray-700">Strengths</label>
+          <div
+            id="strengths"
+            contentEditable={userRole !== 'Agent'}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border h-32 overflow-auto"
+            dangerouslySetInnerHTML={{ __html: evaluationForm.strengths }}
+            onBlur={(e) => setEvaluationForm(prev => ({ ...prev, strengths: e.target.innerHTML }))}
+            ref={strengthsRef}
+          ></div>
+        </div>
+        <div>
+          <label htmlFor="roomForImprovement" className="block text-sm font-medium text-gray-700">Room for Improvement</label>
+          <div
+            id="roomForImprovement"
+            contentEditable={userRole !== 'Agent'}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border h-32 overflow-auto"
+            dangerouslySetInnerHTML={{ __html: evaluationForm.roomForImprovement }}
+            onBlur={(e) => setEvaluationForm(prev => ({ ...prev, roomForImprovement: e.target.innerHTML }))}
+            ref={roomForImprovementRef}
+          ></div>
+        </div>
+        <div>
+          <label htmlFor="previousGoal" className="block text-sm font-medium text-gray-700">Previous Goal</label>
+          <div
+            id="previousGoal"
+            contentEditable={userRole !== 'Agent'}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border h-32 overflow-auto"
+            dangerouslySetInnerHTML={{ __html: evaluationForm.previousGoal }}
+            onBlur={(e) => setEvaluationForm(prev => ({ ...prev, previousGoal: e.target.innerHTML }))}
+            ref={previousGoalRef}
+          ></div>
+        </div>
+        <div>
+          <label htmlFor="goalForNextMonth" className="block text-sm font-medium text-gray-700">Goal for Next Month</label>
+          <div
+            id="goalForNextMonth"
+            contentEditable={userRole !== 'Agent'}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border h-32 overflow-auto"
+            dangerouslySetInnerHTML={{ __html: evaluationForm.goalForNextMonth }}
+            onBlur={(e) => setEvaluationForm(prev => ({ ...prev, goalForNextMonth: e.target.innerHTML }))}
+            ref={goalForNextMonthRef}
+          ></div>
+        </div>
+      </div>
+      <div className="mt-4">
+        <label htmlFor="developmentPath" className="block text-sm font-medium text-gray-700">Development Path</label>
+        <div
+          id="developmentPath"
+          contentEditable={userRole !== 'Agent'}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border h-32 overflow-auto"
+          dangerouslySetInnerHTML={{ __html: evaluationForm.developmentPath }}
+          onBlur={(e) => setEvaluationForm(prev => ({ ...prev, developmentPath: e.target.innerHTML }))}
+          ref={developmentPathRef}
+        ></div>
+      </div>
+    </section>
+  );
+
+  const renderAcknowledgmentSection = () => (
+    <section className="p-6 bg-white rounded-lg shadow-md mb-6 border border-gray-200 print:mb-0">
+      <h2 className="text-xl font-semibold text-five9-darkGray mb-4 font-['Open_Sans']">Acknowledgment Section</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label htmlFor="preparedBy" className="block text-sm font-medium text-gray-700">Prepared By <span className="text-red-500">*</span></label>
+          <input
+            type="text"
+            id="preparedBy"
+            name="preparedBy"
+            value={evaluationForm.preparedBy}
+            onChange={handleInputChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+            required
+            readOnly={userRole === 'Agent'}
+          />
+          <div className="mt-4 border-t-2 border-dashed border-gray-400 pt-2 text-center text-sm text-gray-500">
+            Digital Signature Placeholder
+          </div>
+        </div>
+        <div>
+          <label htmlFor="receivedBy" className="block text-sm font-medium text-gray-700">Received By <span className="text-red-500">*</span></label>
+          <input
+            type="text"
+            id="receivedBy"
+            name="receivedBy"
+            value={evaluationForm.receivedBy}
+            onChange={handleInputChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
+            required
+            readOnly={userRole === 'Agent'}
+          />
+          <div className="mt-4 border-t-2 border-dashed border-gray-400 pt-2 text-center text-sm text-gray-500">
+            Digital Signature Placeholder
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  const renderFooterButtons = () => (
+    <footer className="p-6 bg-five9-lightGray rounded-lg shadow-md flex flex-col sm:flex-row justify-end gap-4 mb-6">
+      <button
+        onClick={handleClearForm}
+        className="px-6 py-3 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 transition duration-200 ease-in-out font-semibold text-base"
+      >
+        Clear Form
+      </button>
+      <button
+        onClick={handleSaveAsPDF}
+        className="px-6 py-3 bg-five9-primary text-white rounded-full shadow-lg hover:bg-five9-secondary focus:outline-none focus:ring-2 focus:ring-five9-primary focus:ring-opacity-75 transition duration-200 ease-in-out font-semibold text-base"
+      >
+        Save as PDF
+      </button>
+    </footer>
+  );
+
+  const renderAttendanceModal = () => {
+    // Filter attendance records based on current dashboard filters if available,
+    // otherwise show all if no specific dashboard filters are active.
+    let recordsToShow = attendanceRecords;
+    if (dashboardEmployeeFilter) {
+        recordsToShow = recordsToShow.filter(rec => rec['Employee Name'] === dashboardEmployeeFilter);
+    }
+    if (dashboardMonthFilter && dashboardYearFilter) {
+        const monthYearString = `${dashboardYearFilter}-${dashboardMonthFilter.padStart(2, '0')}`;
+        recordsToShow = recordsToShow.filter(rec => rec['Date'] && rec['Date'].startsWith(monthYearString));
+    } else if (dashboardYearFilter) {
+        recordsToShow = recordsToShow.filter(rec => rec['Date'] && rec['Date'].startsWith(dashboardYearFilter));
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 className="text-2xl font-bold text-five9-darkGray">Attendance Infractions Detail</h3>
+                    <button onClick={() => setShowAttendanceModal(false)} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                </div>
+                {recordsToShow.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-five9-lightGray">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee Name</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Infractions</th>
+                                    {['NCNS', 'AA', 'UA', 'Tardy<11', 'Tardy>=11', 'UTA', 'UTU', 'FPTO', 'Overbreak'].map(col => (
+                                        <th key={col} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{col}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {recordsToShow.map((record, idx) => (
+                                    <tr key={idx}>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.Date}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record['Employee Name']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record['Total Infractions']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.NCNS}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.AA}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.UA}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Tardy<11']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Tardy>=11']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.UTA}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.UTU}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.FPTO}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.Overbreak}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p className="text-center text-gray-500">No attendance infraction records found for the selected filters.</p>
+                )}
+            </div>
+        </div>
+    );
+  };
+
+  const renderBehavioralModal = () => {
+    // Filter behavioral records based on current dashboard filters if available
+    let recordsToShow = behavioralRecords;
+    if (dashboardEmployeeFilter) {
+        recordsToShow = recordsToShow.filter(rec => rec['Employee Name'] === dashboardEmployeeFilter);
+    }
+    if (dashboardMonthFilter && dashboardYearFilter) {
+        const monthYearString = `${dashboardYearFilter}-${dashboardMonthFilter.padStart(2, '0')}`;
+        recordsToShow = recordsToShow.filter(rec => rec['Start of Month'] && rec['Start of Month'].startsWith(monthYearString));
+    } else if (dashboardYearFilter) {
+        recordsToShow = recordsToShow.filter(rec => rec['Start of Month'] && rec['Start of Month'].startsWith(dashboardYearString));
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 className="text-2xl font-bold text-five9-darkGray">Behavioral Points Detail</h3>
+                    <button onClick={() => setShowBehavioralModal(false)} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                </div>
+                {recordsToShow.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-five9-lightGray">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee Name</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Points</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equivalent Score</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Initiative</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results Orientation</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sense Of Urgency</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Accountability/Judgement</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teamwork/Team Leadership</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {recordsToShow.map((record, idx) => (
+                                    <tr key={idx}>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record['Start of Month']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record['Employee Name']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record['Behavioral Points']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{formatValue(record['Equivalent Score'], 'percentage')}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record.Initiative}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Results Orientation']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Sense Of Urgency']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Accountability/Judgement']}</td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{record['Teamwork/Team Leadership']}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p className="text-center text-gray-500">No behavioral points records found for the selected filters.</p>
+                )}
+            </div>
+        </div>
+    );
+  };
+
+  const renderDashboard = () => {
+    const allEmployeeNames = MOCK_EMPLOYEES.map(emp => emp.name);
+    const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+    const years = ['2023', '2024', '2025']; // Adjust as needed
+
+    const kpiWidgets = kpiDefinitions.filter(kpi => kpi.isActive).map(kpi => {
+        // Calculate average for the widget display
+        const total = filteredDashboardData.reduce((sum, emp) => sum + (emp.averageScores[kpi.id] || 0), 0);
+        const average = filteredDashboardData.length > 0 ? total / filteredDashboardData.length : 0;
+
+        let drilldownType = 'chart';
+        if (kpi.id === 'Total Infractions') {
+            drilldownType = 'attendance';
+        } else if (['Behavioral Points', 'Initiative', 'Results Orientation', 'Sense Of Urgency', 'Accountability/Judgement', 'Teamwork/Team Leadership'].includes(kpi.id)) {
+            drilldownType = 'behavioral';
+        }
+
+        return {
+            id: kpi.id,
+            displayName: kpi.displayName,
+            type: kpi.type,
+            description: kpi.description,
+            average: average,
+            drilldownType: drilldownType,
+        };
+    });
+
+    const handleKpiWidgetClick = (kpiId, drilldownType) => {
+      const kpiDef = kpiDefinitions.find(k => k.id === kpiId);
+      if (!kpiDef) return;
+
+      setSelectedKpiForDrilldown(kpiDef); // For chart rendering
+
+      if (drilldownType === 'attendance') {
+        setShowAttendanceModal(true);
+      } else if (drilldownType === 'behavioral') {
+        setShowBehavioralModal(true);
+      }
+    };
+
+    return (
+      <div className="p-6 bg-five9-lightGray min-h-screen font-['Open_Sans']">
+        <h2 className="text-3xl font-bold text-five9-darkGray mb-6 text-center">KPI Dashboard</h2>
+
+        {/* Filters */}
+        <div className="bg-white p-6 rounded-lg shadow-md mb-6 border border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label htmlFor="dashboardEmployeeFilter" className="block text-sm font-medium text-gray-700">Employee</label>
+            <select
+              id="dashboardEmployeeFilter"
+              value={dashboardEmployeeFilter}
+              onChange={(e) => setDashboardEmployeeFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            >
+              <option value="">All Employees</option>
+              {allEmployeeNames.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dashboardMonthFilter" className="block text-sm font-medium text-gray-700">Month</label>
+            <select
+              id="dashboardMonthFilter"
+              value={dashboardMonthFilter}
+              onChange={(e) => setDashboardMonthFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            >
+              <option value="">All Months</option>
+              {months.map(month => <option key={month} value={month}>{month}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dashboardYearFilter" className="block text-sm font-medium text-gray-700">Year</label>
+            <select
+              id="dashboardYearFilter"
+              value={dashboardYearFilter}
+              onChange={(e) => setDashboardYearFilter(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-five9-primary focus:ring focus:ring-five9-primary focus:ring-opacity-50 p-2 border"
+            >
+              <option value="">All Years</option>
+              {years.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center text-five9-darkGray text-lg">Loading dashboard data...</div>
+        ) : (
+          <>
+            {/* KPI Widgets */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+              {kpiWidgets.map(kpi => (
+                <div
+                  key={kpi.id}
+                  className="bg-white p-5 rounded-lg shadow-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-xl transition-all duration-300 ease-in-out transform hover:-translate-y-1 border border-gray-200"
+                  onClick={() => handleKpiWidgetClick(kpi.id, kpi.drilldownType)}
+                >
+                  <h3 className="text-lg font-semibold text-five9-darkGray mb-2 text-center">{kpi.displayName}</h3>
+                  <p className="text-3xl font-bold text-five9-primary">
+                    {formatValue(kpi.average, kpi.type)}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1 text-center">{kpi.description}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Chart Visualization */}
+            {selectedKpiForDrilldown && filteredDashboardData.length > 0 ? (
+              <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-gray-200">
+                <h3 className="text-xl font-semibold text-five9-darkGray mb-4 text-center font-['Open_Sans']">
+                  Average {selectedKpiForDrilldown.displayName} by Employee
+                </h3>
+                <div style={{ height: '400px' }}>
+                  <canvas ref={chartRef}></canvas>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-gray-200 text-center text-gray-500">
+                Select a KPI widget above to see its average performance across employees.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderKpiManagement = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b pb-3 mb-4">
+          <h3 className="text-2xl font-bold text-five9-darkGray">Manage KPI Definitions</h3>
+          <button onClick={() => setShowKpiManagementModal(false)} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+        </div>
+
+        <div className="mb-6 border p-4 rounded-lg bg-gray-50">
+          <h4 className="text-lg font-semibold mb-3">Add New KPI</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Display Name"
+              value={newKpi.displayName}
+              onChange={(e) => setNewKpi(prev => ({ ...prev, displayName: e.target.value, id: e.target.value.replace(/[^a-zA-Z0-9]/g, '') }))}
+              className="p-2 border rounded-md"
+            />
+            <select
+              value={newKpi.type}
+              onChange={(e) => setNewKpi(prev => ({ ...prev, type: e.target.value }))}
+              className="p-2 border rounded-md"
+            >
+              <option value="number">Number</option>
+              <option value="percentage">Percentage</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Target to Pass (Optional)"
+              value={newKpi.targetToPass || ''}
+              onChange={(e) => setNewKpi(prev => ({ ...prev, targetToPass: parseFloat(e.target.value) || null }))}
+              className="p-2 border rounded-md"
+            />
+            <input
+              type="number"
+              placeholder="Weight (Optional)"
+              value={newKpi.weight || ''}
+              onChange={(e) => setNewKpi(prev => ({ ...prev, weight: parseFloat(e.target.value) || null }))}
+              className="p-2 border rounded-md"
+            />
+          </div>
+          <textarea
+            placeholder="Description (Optional)"
+            value={newKpi.description}
+            onChange={(e) => setNewKpi(prev => ({ ...prev, description: e.target.value }))}
+            className="w-full p-2 border rounded-md mt-4"
+            rows="2"
+          ></textarea>
+          <button
+            onClick={handleAddKpi}
+            className="mt-4 px-4 py-2 bg-five9-primary text-white rounded-full shadow-md hover:bg-five9-secondary transition duration-200"
+          >
+            Add KPI
+          </button>
+        </div>
+
+        <h4 className="text-lg font-semibold mb-3">Existing KPIs</h4>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-five9-lightGray">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Display Name</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Weight</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {kpiDefinitions.map(kpi => (
+                <tr key={kpi.id}>
+                  {editingKpi && editingKpi.id === kpi.id ? (
+                    // Edit mode
+                    <>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={editingKpi.displayName}
+                          onChange={(e) => setEditingKpi(prev => ({ ...prev, displayName: e.target.value }))}
+                          className="w-full p-1 border rounded-md"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <select
+                          value={editingKpi.type}
+                          onChange={(e) => setEditingKpi(prev => ({ ...prev, type: e.target.value }))}
+                          className="w-full p-1 border rounded-md"
+                        >
+                          <option value="number">Number</option>
+                          <option value="percentage">Percentage</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          placeholder="N/A"
+                          value={editingKpi.targetToPass || ''}
+                          onChange={(e) => setEditingKpi(prev => ({ ...prev, targetToPass: parseFloat(e.target.value) || null }))}
+                          className="w-20 p-1 border rounded-md"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          placeholder="N/A"
+                          value={editingKpi.weight || ''}
+                          onChange={(e) => setEditingKpi(prev => ({ ...prev, weight: parseFloat(e.target.value) || null }))}
+                          className="w-20 p-1 border rounded-md"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={editingKpi.description || ''}
+                          onChange={(e) => setEditingKpi(prev => ({ ...prev, description: e.target.value }))}
+                          className="w-full p-1 border rounded-md"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                          <input
+                              type="checkbox"
+                              checked={editingKpi.isActive}
+                              onChange={() => setEditingKpi(prev => ({ ...prev, isActive: !prev.isActive }))}
+                              className="form-checkbox h-4 w-4 text-five9-primary rounded"
+                          />
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <button onClick={handleUpdateKpi} className="text-green-600 hover:text-green-900 mr-2">Save</button>
+                        <button onClick={() => setEditingKpi(null)} className="text-gray-600 hover:text-gray-900">Cancel</button>
+                      </td>
+                    </>
+                  ) : (
+                    // View mode
+                    <>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">{kpi.displayName}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{kpi.type}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{kpi.targetToPass !== null ? formatValue(kpi.targetToPass, kpi.type) : '-'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{kpi.weight !== null ? kpi.weight : '-'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 overflow-hidden text-ellipsis max-w-[150px]">{kpi.description || '-'}</td>
+                      <td className="px-4 py-2 text-center">
+                          <input
+                              type="checkbox"
+                              checked={kpi.isActive}
+                              onChange={() => handleToggleKpiActive(kpi)}
+                              className="form-checkbox h-4 w-4 text-five9-primary rounded cursor-pointer"
+                          />
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <button onClick={() => setEditingKpi(kpi)} className="text-five9-primary hover:text-five9-secondary mr-2">Edit</button>
+                        <button onClick={() => handleDeleteKpi(kpi.id)} className="text-red-600 hover:text-red-900">Delete</button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {kpiDefinitions.length === 0 && (
+            <div className="p-4 text-center text-gray-500">No KPI definitions found. Add one above!</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-five9-lightGray font-['Open_Sans'] text-five9-textBase">
+      {/* Tailwind CSS Script for JIT compilation (for local testing) */}
+      <script src="https://cdn.tailwindcss.com"></script>
+      <script>
+        {`
+        // Wait for the Tailwind CSS script to be loaded before configuring it
+        if (window.tailwind) {
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            'five9-primary': '${FIVE9_COLORS.primary}',
+                            'five9-secondary': '${FIVE9_COLORS.secondary}',
+                            'five9-darkGray': '${FIVE9_COLORS.darkGray}',
+                            'five9-lightGray': '${FIVE9_COLORS.lightGray}',
+                            'five9-textBase': '${FIVE9_COLORS.textBase}',
+                            'five9-textLight': '${FIVE9_COLORS.textLight}',
+                        },
+                        fontFamily: {
+                            sans: ['${FONT_FAMILY}'],
+                        },
+                    },
+                },
+            };
+        }
+        `}
+      </script>
+      {/* Global Styles (for responsive design and print) */}
+      <style>
+        {`
+        body { font-family: ${FONT_FAMILY}; color: ${FIVE9_COLORS.textBase}; margin: 0; }
+        .bg-five9-primary { background-color: ${FIVE9_COLORS.primary}; }
+        .text-five9-primary { color: ${FIVE9_COLORS.primary}; }
+        .hover\\:bg-five9-secondary:hover { background-color: ${FIVE9_COLORS.secondary}; }
+        .focus\\:ring-five9-primary:focus { --tw-ring-color: ${FIVE9_COLORS.primary}; }
+        .border-five9-primary { border-color: ${FIVE9_COLORS.primary}; }
+        .bg-five9-lightGray { background-color: ${FIVE9_COLORS.lightGray}; }
+        .text-five9-darkGray { color: ${FIVE9_COLORS.darkGray}; }
+
+        /* Print-specific styles */
+        @media print {
+          body {
+            -webkit-print-color-adjust: exact !important;
+            color-adjust: exact !important;
+            background-color: #fff !important; /* Ensure white background on print */
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print\\:block {
+            display: block !important;
+          }
+          .print\\:w-full {
+            width: 100% !important;
+          }
+          .print\\:shadow-none {
+            box-shadow: none !important;
+          }
+          .print\\:border-none {
+            border: none !important;
+          }
+          .print\\:mb-0 {
+            margin-bottom: 0 !important;
+          }
+          /* Ensure form elements are visible and not cut off */
+          input, textarea, select, table {
+            -webkit-print-color-adjust: exact !important;
+            color-adjust: exact !important;
+            border-color: #ccc !important;
+            background-color: #fff !important;
+            color: #000 !important;
+          }
+          table, th, td {
+            border: 1px solid #ddd !important;
+          }
+          .shadow-md, .shadow-lg, .shadow-xl {
+            box-shadow: none !important;
+          }
+          .rounded-lg, .rounded-full {
+            border-radius: 0 !important;
+          }
+          header, footer {
+            display: none !important; /* Hide header/footer if only content is needed for PDF */
+          }
+          .bg-gradient-to-r, .from-five9-primary, .to-five9-secondary {
+            background: none !important;
+            background-color: #fff !important;
+          }
+          .text-white {
+            color: #000 !important;
+          }
+        }
+        `}
+      </style>
+
+      {/* Main Layout */}
+      <div className="flex flex-col min-h-screen">
+        {renderHeader()}
+
+        {/* Navigation Tabs */}
+        <nav className="no-print bg-white shadow-md mb-6 py-3 px-4 flex flex-col sm:flex-row justify-center items-center gap-4 border-b border-gray-200">
+          <div className="flex space-x-4">
+            <button
+              onClick={() => setActiveTab('form')}
+              className={`px-4 py-2 rounded-full font-semibold transition duration-300 ${activeTab === 'form' ? 'bg-five9-primary text-white shadow-md' : 'text-five9-darkGray hover:bg-five9-lightGray'}`}
+            >
+              Performance Evaluation Form
+            </button>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`px-4 py-2 rounded-full font-semibold transition duration-300 ${activeTab === 'dashboard' ? 'bg-five9-primary text-white shadow-md' : 'text-five9-darkGray hover:bg-five9-lightGray'}`}
+            >
+              Performance Dashboard
+            </button>
+          </div>
+
+          {userRole === 'Supervisor' && (
+            <button
+              onClick={() => setShowKpiManagementModal(true)}
+              className="px-4 py-2 rounded-full font-semibold bg-five9-secondary text-white shadow-md hover:bg-five9-primary transition duration-300 sm:ml-auto"
+            >
+              Manage KPIs
+            </button>
+          )}
+
+          {/* User Role Selector */}
+          <div className="flex items-center space-x-2 sm:ml-4">
+            <label htmlFor="userRole" className="text-sm font-medium text-gray-700">Role:</label>
+            <select
+              id="userRole"
+              value={userRole}
+              onChange={(e) => setUserRole(e.target.value)}
+              className="p-1 border rounded-md text-sm bg-white shadow-sm"
+            >
+              <option value="Supervisor">Supervisor</option>
+              <option value="Agent">Agent</option>
+            </select>
+          </div>
+        </nav>
+
+        {/* Main Content Area */}
+        <main className="flex-1 p-6">
+          {loading && (
+            <div className="fixed inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
+              <div className="text-five9-primary text-xl font-semibold">Loading data...</div>
+            </div>
+          )}
+
+          {activeTab === 'form' && (
+            <div ref={formRef} className="form-container"> {/* This div will be captured for PDF */}
+              {renderEmployeeSelection()}
+              {renderEvaluationPeriod()}
+              {renderScorecardBreakdown()}
+              {renderFeedbackSections()}
+              {renderAcknowledgmentSection()}
+            </div>
+          )}
+
+          {activeTab === 'dashboard' && renderDashboard()}
+        </main>
+
+        {activeTab === 'form' && renderFooterButtons()}
+
+        {/* Modals */}
+        {showAttendanceModal && renderAttendanceModal()}
+        {showBehavioralModal && renderBehavioralModal()}
+        {showKpiManagementModal && renderKpiManagement()}
+
+        {/* Custom Message Modal */}
+        {showMessageModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-[1000]">
+            <div className="bg-white rounded-lg shadow-xl p-4 text-center text-five9-darkGray font-semibold">
+              {message}
+            </div>
+          </div>
+        )}
+
+        {/* Custom Confirmation Modal */}
+        {showConfirmModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
+              <p className="text-lg text-five9-darkGray mb-6 text-center">{confirmMessage}</p>
+              <div className="flex justify-around">
+                <button
+                  onClick={handleConfirm}
+                  className="px-6 py-2 bg-five9-primary text-white rounded-full shadow-md hover:bg-five9-secondary transition duration-200"
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={handleCancelConfirm}
+                  className="px-6 py-2 bg-gray-300 text-gray-800 rounded-full shadow-md hover:bg-gray-400 transition duration-200"
+                >
+                  No
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
